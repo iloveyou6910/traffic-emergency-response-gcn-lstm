@@ -1,7 +1,4 @@
-pandas
 numpy<2
+pandas
 pyyaml
-networkx
-matplotlib
-folium
-streamlit
+torch>=2.3,<2.5
