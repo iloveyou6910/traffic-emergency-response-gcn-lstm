@@ -130,3 +130,6 @@ dmypy.json
 
 # vs code
 .vscode/
+
+# Project archive (do not version)
+_archive/

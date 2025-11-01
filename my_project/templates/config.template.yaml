@@ -1,0 +1,28 @@
+# 最小演示版配置模板
+
+paths:
+  data_dir: "my_project/data"
+  outputs_dir: "my_project/outputs"
+
+routing:
+  alpha: 1.0     # 拥堵权重
+  beta: 0.2      # 天气权重
+  gamma: 0.5     # 事件权重
+  avg_steps: 3   # 拥堵多步平均K
+
+training:
+  epochs: 12
+  clip_norm: 1.0
+  lr_scheduler: "none"   # 可选：none | step | cosine
+  step_size: 5            # 仅当 step 时生效
+  gamma: 0.5              # StepLR 衰减系数
+
+inference:
+  window_history: 12      # 历史窗口长度
+  window_predict: 6       # 预测步数
+
+explain:
+  use_llm: false
+  model: "Qwen/Qwen2.5-0.5B-Instruct"
+  template: "summary"     # 可选：summary | diagnostic | route_rationale
+  max_tokens: 256

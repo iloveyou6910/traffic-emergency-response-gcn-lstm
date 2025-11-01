@@ -1,1 +1,0 @@
-from .heterogclstm import HeteroGCLSTM

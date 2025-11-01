@@ -1,0 +1,84 @@
+{
+  "top_nodes": [
+    {
+      "node": 0,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "天气不利（等级 4）"
+      ]
+    },
+    {
+      "node": 1,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "受邻近路段波及与高流量影响"
+      ]
+    },
+    {
+      "node": 2,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "受邻近路段波及与高流量影响"
+      ]
+    },
+    {
+      "node": 3,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "受邻近路段波及与高流量影响"
+      ]
+    },
+    {
+      "node": 4,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "天气不利（等级 4）"
+      ]
+    },
+    {
+      "node": 5,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "天气不利（等级 4）"
+      ]
+    },
+    {
+      "node": 6,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "受邻近路段波及与高流量影响"
+      ]
+    },
+    {
+      "node": 7,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "天气不利（等级 4）"
+      ]
+    },
+    {
+      "node": 8,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "受邻近路段波及与高流量影响"
+      ]
+    },
+    {
+      "node": 9,
+      "avg_congestion_level": 3.0,
+      "max_congestion_level": 3,
+      "reasons": [
+        "受邻近路段波及与高流量影响"
+      ]
+    }
+  ]
+}

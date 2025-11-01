@@ -1,0 +1,20 @@
+grid:
+  rows: 30
+  cols: 30
+  cell_size_m: 200
+
+time:
+  history_steps: 12
+  forecast_steps: 6
+  step_minutes: 5
+
+synthetic:
+  seed: 42
+
+adjacency:
+  undirected: true
+  four_neighborhood: true
+
+paths:
+  data_dir: "D:/PGT/my_project/data"
+  outputs_dir: "D:/PGT/my_project/outputs"

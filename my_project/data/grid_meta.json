@@ -1,0 +1,15 @@
+{
+  "rows": 30,
+  "cols": 30,
+  "n_nodes": 900,
+  "cell_size_m": 200,
+  "lat_min": 33.41819464,
+  "lat_max": 35.55370336,
+  "lon_min": -117.77293852,
+  "lon_max": -114.52785748000001,
+  "files": {
+    "traffic": "D:/PGT/my_project/data/traffic_samples.csv",
+    "weather": "D:/PGT/my_project/data/weather_samples.csv",
+    "events": "D:/PGT/my_project/data/events_samples.csv"
+  }
+}
