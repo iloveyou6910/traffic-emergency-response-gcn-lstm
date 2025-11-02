@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
+from typing import Optional
 
 
 def load_config(path: str):
@@ -138,8 +139,12 @@ def build_dataset(features: Dict[str, np.ndarray], cfg) -> Tuple[np.ndarray, np.
     return X, Y
 
 
+def _mae_norm(y_hat: torch.Tensor, y_true: torch.Tensor) -> float:
+    return torch.mean(torch.abs(y_hat - y_true)).item()
+
 def train_eval(cfg_path: str, epochs: int = 12, lr: float = 1e-3, gcn_hidden: int = 32, lstm_hidden: int = 64, train_split: float = 0.7,
-               clip_norm: float = 1.0, lr_scheduler: str = "none", step_size: int = 5, gamma: float = 0.5):
+               clip_norm: float = 1.0, lr_scheduler: str = "none", step_size: int = 5, gamma: float = 0.5,
+               patience: int = 5, min_delta: float = 1e-4, run_name: Optional[str] = None):
     cfg = load_config(cfg_path)
     data_dir, outputs_dir = ensure_dirs(cfg)
     meta = json.load(open(data_dir / "grid_meta.json", "r", encoding="utf-8"))
@@ -178,7 +183,7 @@ def train_eval(cfg_path: str, epochs: int = 12, lr: float = 1e-3, gcn_hidden: in
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = GCNLSTM(n_nodes=n_nodes, in_feats=X.shape[-1], gcn_hidden=gcn_hidden, lstm_hidden=lstm_hidden,
                     forecast_steps=Y.shape[1], A_norm=A_norm).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr)  # 可选 weight_decay 后续加入
     criterion = nn.MSELoss()
 
     scheduler = None
@@ -190,8 +195,13 @@ def train_eval(cfg_path: str, epochs: int = 12, lr: float = 1e-3, gcn_hidden: in
     X_t = torch.from_numpy(X).float()
     Y_t = torch.from_numpy(Y).float()
 
-    history = {"train": [], "eval": []}
+    history = {"train_mse": [], "eval_mse": [], "train_rmse_kmh": [], "eval_rmse_kmh": [], "train_mae_kmh": [], "eval_mae_kmh": []}
 
+    best_eval = float("inf")
+    best_epoch = 0
+    best_state = None
+    wait = 0
+    
     events_log = outputs_dir / "logs" / "train_events.log"
     with open(events_log, "w", encoding="utf-8") as lf:
         lf.write("")
@@ -199,6 +209,7 @@ def train_eval(cfg_path: str, epochs: int = 12, lr: float = 1e-3, gcn_hidden: in
     for ep in range(1, epochs + 1):
         model.train()
         train_loss = 0.0
+        train_mae = 0.0
         for i in range(S_tr):
             x_i = X_t[i].to(device)
             y_i = Y_t[i].to(device)
@@ -210,25 +221,40 @@ def train_eval(cfg_path: str, epochs: int = 12, lr: float = 1e-3, gcn_hidden: in
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_norm)
             optimizer.step()
             train_loss += loss.item()
+            train_mae += _mae_norm(y_hat, y_i)
         train_loss /= max(1, S_tr)
+        train_mae /= max(1, S_tr)
+        train_rmse_kmh = (train_loss ** 0.5) * 80.0
+        train_mae_kmh = train_mae * 80.0
 
         model.eval()
         with torch.no_grad():
             eval_loss = 0.0
+            eval_mae = 0.0
             for i in range(S_tr, S):
                 x_i = X_t[i].to(device)
                 y_i = Y_t[i].to(device)
                 y_hat = model(x_i)
                 loss = criterion(y_hat, y_i)
                 eval_loss += loss.item()
+                eval_mae += _mae_norm(y_hat, y_i)
             eval_loss /= max(1, S - S_tr)
+            eval_mae /= max(1, S - S_tr)
+            eval_rmse_kmh = (eval_loss ** 0.5) * 80.0
+            eval_mae_kmh = eval_mae * 80.0
 
         if scheduler is not None:
             scheduler.step()
 
-        history["train"].append(train_loss)
-        history["eval"].append(eval_loss)
-        msg = f"[train] epoch={ep} MSE={train_loss:.6f} | [eval] MSE={eval_loss:.6f}"
+        history["train_mse"].append(train_loss)
+        history["eval_mse"].append(eval_loss)
+        history["train_rmse_kmh"].append(train_rmse_kmh)
+        history["eval_rmse_kmh"].append(eval_rmse_kmh)
+        history["train_mae_kmh"].append(train_mae_kmh)
+        history["eval_mae_kmh"].append(eval_mae_kmh)
+
+        msg = f"[train] epoch={ep} MSE={train_loss:.6f} RMSE_kmh={train_rmse_kmh:.3f} MAE_kmh={train_mae_kmh:.3f} | " \
+              f"[eval] MSE={eval_loss:.6f} RMSE_kmh={eval_rmse_kmh:.3f} MAE_kmh={eval_mae_kmh:.3f}"
         print(msg)
         try:
             with open(events_log, "a", encoding="utf-8") as lf:
@@ -236,22 +262,76 @@ def train_eval(cfg_path: str, epochs: int = 12, lr: float = 1e-3, gcn_hidden: in
         except Exception:
             pass
 
+        # 早停与保存最优
+        if eval_loss < best_eval - min_delta:
+            best_eval = eval_loss
+            best_epoch = ep
+            best_state = {"state_dict": model.state_dict(),
+                          "cfg": cfg,
+                          "node_ids": node_ids,
+                          "in_feats": X.shape[-1],
+                          "gcn_hidden": gcn_hidden,
+                          "lstm_hidden": lstm_hidden,
+                          "forecast_steps": Y.shape[1]}
+            wait = 0
+        else:
+            wait += 1
+            if wait >= patience:
+                print(f"[early_stop] No improvement for {patience} epochs, stopping at epoch {ep}.")
+                break
+
+    # 保存最后与最优模型
     model_path = outputs_dir / "models" / "gcnlstm_model.pt"
-    torch.save({
-        "state_dict": model.state_dict(),
-        "cfg": cfg,
-        "node_ids": node_ids,
-        "in_feats": X.shape[-1],
-        "gcn_hidden": gcn_hidden,
-        "lstm_hidden": lstm_hidden,
-        "forecast_steps": Y.shape[1]
-    }, model_path)
+    torch.save({"state_dict": model.state_dict(), "cfg": cfg, "node_ids": node_ids, "in_feats": X.shape[-1],
+                "gcn_hidden": gcn_hidden, "lstm_hidden": lstm_hidden, "forecast_steps": Y.shape[1]}, model_path)
+
+    best_path = outputs_dir / "models" / "gcnlstm_model_best.pt"
+    if best_state is not None:
+        torch.save(best_state, best_path)
 
     log_path = outputs_dir / "logs" / "train_log.json"
     with open(log_path, "w", encoding="utf-8") as f:
-        json.dump({"epochs": epochs, "train_mse": history["train"], "eval_mse": history["eval"]}, f, ensure_ascii=False, indent=2)
+        json.dump({
+            "epochs": epochs,
+            "epochs_done": len(history["eval_mse"]),
+            "train_mse": history["train_mse"],
+            "eval_mse": history["eval_mse"],
+            "train_rmse_kmh": history["train_rmse_kmh"],
+            "eval_rmse_kmh": history["eval_rmse_kmh"],
+            "train_mae_kmh": history["train_mae_kmh"],
+            "eval_mae_kmh": history["eval_mae_kmh"],
+            "best": {
+                "epoch": best_epoch,
+                "eval_mse": best_eval,
+                "eval_rmse_kmh": ((best_eval ** 0.5) * 80.0) if best_eval < float("inf") else None,
+                "eval_mae_kmh": (min(history["eval_mae_kmh"]) if history["eval_mae_kmh"] else None)
+            }
+        }, f, ensure_ascii=False, indent=2)
+
+    # 额外汇总到 reports（可选 run_name）
+    reports_dir = outputs_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    if run_name:
+        import csv
+        tagged_log = reports_dir / f"train_log__{run_name}.json"
+        try:
+            tagged_log.write_text(open(log_path, "r", encoding="utf-8").read(), encoding="utf-8")
+        except Exception:
+            pass
+        summary_csv = reports_dir / "grid_summary.csv"
+        header = ["run_name","epochs","epochs_done","gcn_hidden","lstm_hidden","lr_scheduler","best_eval_mse","best_eval_rmse_kmh","best_eval_mae_kmh"]
+        row = [run_name, epochs, len(history["eval_mse"]), gcn_hidden, lstm_hidden, lr_scheduler, best_eval,
+               ((best_eval ** 0.5) * 80.0) if best_eval < float("inf") else None,
+               (min(history["eval_mae_kmh"]) if history["eval_mae_kmh"] else None)]
+        write_header = not summary_csv.exists()
+        with open(summary_csv, "a", newline="", encoding="utf-8") as cf:
+            w = csv.writer(cf)
+            if write_header:
+                w.writerow(header)
+            w.writerow(row)
 
     print(f"[train_eval] Saved model to {model_path}")
+    print(f"[train_eval] Saved best model to {best_path}")
     print(f"[train_eval] Saved log to {log_path}")
 
 
@@ -263,8 +343,13 @@ def main():
     parser.add_argument("--lr_scheduler", type=str, required=False, choices=["none", "step", "cosine"], default="none")
     parser.add_argument("--step_size", type=int, required=False, default=5)
     parser.add_argument("--gamma", type=float, required=False, default=0.5)
+    # 新增：早停与运行标识
+    parser.add_argument("--patience", type=int, required=False, default=5)
+    parser.add_argument("--min_delta", type=float, required=False, default=1e-4)
+    parser.add_argument("--run_name", type=str, required=False, default=None)
     args = parser.parse_args()
-    train_eval(args.config, epochs=args.epochs, clip_norm=args.clip_norm, lr_scheduler=args.lr_scheduler, step_size=args.step_size, gamma=args.gamma)
+    train_eval(args.config, epochs=args.epochs, clip_norm=args.clip_norm, lr_scheduler=args.lr_scheduler, step_size=args.step_size, gamma=args.gamma,
+               patience=args.patience, min_delta=args.min_delta, run_name=args.run_name)
 
 
 if __name__ == "__main__":
